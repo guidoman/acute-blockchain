@@ -4,4 +4,6 @@
 
 A minimalistic blockchain implementation in Go.
 
+## !!!!! WORK IN PROGRESS !!!!!
+
 
