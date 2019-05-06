@@ -44,7 +44,7 @@ func TestGetLatestBlock(t *testing.T) {
 
 func TestGetCurrentTimestamp(t *testing.T) {
 	now := time.Now().UnixNano()
-	tolerance := 100.0
+	tolerance := 1000.0
 	ts := getCurrentTimestamp()
 	diff := math.Abs(float64(ts) - float64(now))
 	if diff > tolerance {
