@@ -77,7 +77,6 @@ var upgrader = websocket.Upgrader{
 }
 var peers = make(map[*websocket.Conn]bool) // TODO process.env.PEERS ? process.env.PEERS.split(',') : [];
 
-// ComputeHash computes the Hash of a block struct
 func computeHashForBlock(block Block) string {
 	return computeHash(block.Index, block.Timestamp, block.PreviousHash, block.Data)
 }
@@ -124,8 +123,20 @@ func generateNextBlock(blockData string) Block {
 	return Block{nextIndex, nextTimestamp, previousBlock.Hash, blockData, nextHash}
 }
 
-func getBlocksEndpoint(w http.ResponseWriter, req *http.Request) {
+func getBlocksEndpoint(w http.ResponseWriter, _ *http.Request) {
 	json.NewEncoder(w).Encode(blockchain)
+}
+
+func handleMineBlock(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	msgData, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	newBlock := generateNextBlock(string(msgData))
+	addBlock(newBlock)
+	hub.broadcast <- responseLatestMsg()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func handleBroadcast(hub *Hub, w http.ResponseWriter, r *http.Request) {
@@ -178,7 +189,7 @@ func queryAllMsg() []byte {
 	return res
 }
 
-func servePeerWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
+func initP2PServer(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
@@ -195,11 +206,14 @@ func servePeerWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 func initHttpServer(hub *Hub, port string) {
 	router := mux.NewRouter()
+
 	router.HandleFunc("/blocks", getBlocksEndpoint).Methods("GET")
 
-	// See: initP2PServer
+	router.HandleFunc("/mineBlock", func(w http.ResponseWriter, r *http.Request) {
+		handleMineBlock(hub, w, r)
+	}).Methods("POST")
 	router.HandleFunc("/peer", func(w http.ResponseWriter, r *http.Request) {
-		servePeerWS(hub, w, r)
+		initP2PServer(hub, w, r)
 	})
 
 	router.HandleFunc("/addPeer", func(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +223,19 @@ func initHttpServer(hub *Hub, port string) {
 	router.HandleFunc("/broadcast", func(w http.ResponseWriter, r *http.Request) {
 		handleBroadcast(hub, w, r)
 	}).Methods("POST")
+
+	router.HandleFunc("/peers", func(w http.ResponseWriter, r *http.Request) {
+		clients := hub.getRegisteredClients()
+		msg := struct {
+			Peers []string `json:"peers"`
+		}{Peers: make([]string, len(clients))}
+		for i, c := range clients {
+			msg.Peers[i] = fmt.Sprintf("%s", c.conn.RemoteAddr())
+		}
+		jsonData, _ := json.Marshal(msg)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(jsonData))
+	})
 
 	fmt.Printf("Listening http on port %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, router))
@@ -268,7 +295,7 @@ func handleBlockChainResponse(msgData []byte, hub *Hub) {
 	})
 	latestBlockReceived := receivedBlocks[len(receivedBlocks)-1]
 	latestBlockHeld := getLatestBlock()
-	if latestBlockReceived.Index < latestBlockHeld.Index {
+	if latestBlockReceived.Index > latestBlockHeld.Index {
 		fmt.Printf("Blockchain possibly behind. We got: %d, peer got: %d", latestBlockHeld.Index, latestBlockReceived.Index)
 		if latestBlockHeld.Hash == latestBlockReceived.Hash {
 			fmt.Println("We can append the received block to our chain")
@@ -361,7 +388,7 @@ func (c *Client) writePump() {
 }
 
 func main() {
-	// See https://github.com/gorilla/websocket/tree/master/examples/chat
+	// See: https://github.com/gorilla/websocket/tree/master/examples/chat
 	// See: https://rogerwelin.github.io/golang/websockets/gorilla/2018/03/13/golang-websockets.html
 	// See: https://www.thepolyglotdeveloper.com/2016/07/create-a-simple-restful-api-with-golang/
 	fmt.Println("Starting acute blockchain...")

@@ -50,3 +50,13 @@ func (h *Hub) run() {
 		}
 	}
 }
+
+func (h *Hub) getRegisteredClients() []*Client {
+	keys := make([]*Client, len(h.clients))
+	i := 0
+	for k := range h.clients {
+		keys[i] = k
+		i++
+	}
+	return keys
+}
